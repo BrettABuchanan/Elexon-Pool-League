@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Pool League Dashboard</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="scoreboard" aria-label="Pool league dashboard">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Monthly standings</p>
+            <h1><span class="brand-logo" aria-label="Elexon">ELEXON</span> Pool League</h1>
+            <p class="season-note">Season: 1 Jan to 31 Dec</p>
+          </div>
+          <div class="month-picker">
+            <label for="monthSelect">Month</label>
+            <select id="monthSelect" aria-label="Choose month"></select>
+            <button class="icon-button" id="addMonthButton" type="button" title="Add month" aria-label="Add month">+</button>
+          </div>
+        </header>
+
+        <section class="summary-strip" aria-label="League summary">
+          <article>
+            <span id="playerCount">8</span>
+            <p>Players</p>
+          </article>
+          <article>
+            <span id="totalWins">0</span>
+            <p>Total wins</p>
+          </article>
+          <article>
+            <span id="leaderName">-</span>
+            <p>Month leader</p>
+          </article>
+          <article class="overall-summary">
+            <span id="overallLeaderName">-</span>
+            <p>Overall leader</p>
+          </article>
+          <article>
+            <span id="saveStatus">Local</span>
+            <p>Save status</p>
+          </article>
+        </section>
+
+        <section class="content-grid">
+          <section class="panel standings-panel" aria-labelledby="standingsTitle">
+            <div class="panel-heading">
+              <h2 id="standingsTitle">Standings</h2>
+              <div class="heading-actions">
+                <button id="seasonViewButton" type="button">Lock season table</button>
+                <button id="clearMonthButton" type="button">Clear month</button>
+              </div>
+            </div>
+            <div class="standings-table" role="table" aria-label="Player standings">
+              <div id="standingsHead" class="table-row table-head" role="row">
+                <span role="columnheader">Rank</span>
+                <span role="columnheader">Player</span>
+                <span role="columnheader">This month</span>
+                <span role="columnheader">Total</span>
+              </div>
+              <div id="standingsRows"></div>
+            </div>
+            <section class="trend-panel" aria-labelledby="trendTitle">
+              <div class="trend-heading">
+                <div>
+                  <p class="mini-label">Season movement</p>
+                  <h2 id="trendTitle">Player trendlines</h2>
+                </div>
+                <p id="trendHint">Updates when a month has scores</p>
+              </div>
+              <div id="trendChart" class="trend-chart" aria-label="Player score trend chart"></div>
+            </section>
+          </section>
+
+          <aside class="panel update-panel" aria-labelledby="updateTitle">
+            <section class="overall-card" aria-labelledby="overallTitle">
+              <div>
+                <p class="mini-label">League race</p>
+                <h2 id="overallTitle">Overall top 3</h2>
+              </div>
+              <div id="overallPodium" class="overall-podium"></div>
+            </section>
+
+            <div class="divider"></div>
+
+            <h2 id="updateTitle">Add wins</h2>
+            <form id="winsForm">
+              <label for="playerSelect">Player</label>
+              <select id="playerSelect"></select>
+
+              <label for="winsInput">Wins to add</label>
+              <input id="winsInput" type="number" min="1" step="1" value="1" inputmode="numeric">
+
+              <button class="primary-button" type="submit">Add wins</button>
+            </form>
+
+            <div class="divider"></div>
+
+            <h2>Correct score</h2>
+            <form id="correctionForm">
+              <label for="correctionPlayerSelect">Player</label>
+              <select id="correctionPlayerSelect"></select>
+
+              <label for="correctedWinsInput">Set selected month to</label>
+              <input id="correctedWinsInput" type="number" min="0" step="1" value="0" inputmode="numeric">
+
+              <button class="secondary-button" type="submit">Update score</button>
+            </form>
+
+            <div class="divider"></div>
+
+            <h2>Add player</h2>
+            <form id="playerForm">
+              <label for="newPlayerInput">Name</label>
+              <div class="inline-form">
+                <input id="newPlayerInput" type="text" autocomplete="off" placeholder="New player">
+                <button type="submit">Add</button>
+              </div>
+            </form>
+
+            <button class="reset-button" id="resetButton" type="button">Reset league</button>
+          </aside>
+        </section>
+      </section>
+    </main>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="config.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

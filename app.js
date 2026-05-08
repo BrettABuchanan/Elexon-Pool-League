@@ -107,7 +107,7 @@ function normalizeState(savedState) {
   const rawPlayers = Array.isArray(savedState.players) && savedState.players.length
     ? savedState.players
     : createStarterPlayers();
-  const players = rawPlayers.map(normalizePlayer);
+  const players = dedupePlayersByName(rawPlayers.map(normalizePlayer));
 
   return {
     selectedMonth,
@@ -115,6 +115,63 @@ function normalizeState(savedState) {
     months,
     players
   };
+}
+
+// Collapse same-name players into one entry. Used to heal historical data
+// where a fresh device generated its own starter players with new IDs and
+// merged them into a populated remote.
+//
+// For each (player, month) cell we take the higher-win value; ties go to the
+// later timestamp. We keep the older (id, createdAt) so subsequent edits
+// land on the canonical entry.
+function dedupePlayersByName(players) {
+  const byName = new Map();
+
+  for (const p of players) {
+    const key = (p.name || "").trim().toLowerCase();
+    if (!key) continue;
+
+    const existing = byName.get(key);
+    if (!existing) {
+      byName.set(key, p);
+      continue;
+    }
+
+    const existingCreatedAt = existing.createdAt || Number.MAX_SAFE_INTEGER;
+    const incomingCreatedAt = p.createdAt || Number.MAX_SAFE_INTEGER;
+    const keepBase = existingCreatedAt <= incomingCreatedAt ? existing : p;
+    const other = keepBase === existing ? p : existing;
+
+    const cells = new Set([
+      ...Object.keys(keepBase.wins || {}),
+      ...Object.keys(other.wins || {})
+    ]);
+    const mergedWins = {};
+    const mergedTs = {};
+    for (const m of cells) {
+      const aW = Number(keepBase.wins?.[m]) || 0;
+      const bW = Number(other.wins?.[m]) || 0;
+      const aT = Number(keepBase.winTs?.[m]) || 0;
+      const bT = Number(other.winTs?.[m]) || 0;
+      // Take the larger value, breaking ties by later timestamp.
+      if (bW > aW || (bW === aW && bT > aT)) {
+        mergedWins[m] = bW;
+      } else {
+        mergedWins[m] = aW;
+      }
+      mergedTs[m] = Math.max(aT, bT);
+    }
+
+    byName.set(key, {
+      id: keepBase.id,
+      name: keepBase.name,
+      createdAt: keepBase.createdAt || 0,
+      wins: mergedWins,
+      winTs: mergedTs
+    });
+  }
+
+  return [...byName.values()];
 }
 
 function now() {
@@ -197,21 +254,36 @@ function mergeStates(local, remote) {
     selectedMonth: local.selectedMonth,
     viewMode: local.viewMode,
     months,
-    players: [...playerById.values()]
+    // Final dedup pass collapses any historical "two-Bretts" duplicates
+    // created before the starter-on-empty-localStorage fix landed.
+    players: dedupePlayersByName([...playerById.values()])
   };
 }
 
+// Returns the state cached in localStorage, or null if there isn't one.
+// Returning null (rather than fresh starter players) is important: it means
+// "I have no local edits to merge" so a sign-in on a brand-new device won't
+// inject 8 starters with new random IDs into a populated remote.
 function loadLocalState() {
   const saved = localStorage.getItem(STORAGE_KEY);
 
-  if (!saved) return createStarterState();
+  if (!saved) return null;
 
   try {
     return normalizeState(JSON.parse(saved));
   } catch {
     localStorage.removeItem(STORAGE_KEY);
-    return createStarterState();
+    return null;
   }
+}
+
+function emptyState() {
+  return {
+    selectedMonth: 1,
+    viewMode: "month",
+    months: [1],
+    players: []
+  };
 }
 
 function saveLocalState() {
@@ -264,7 +336,7 @@ async function fetchRemoteState() {
   };
 }
 
-async function loadOnlineState() {
+async function loadOnlineState({ hasLocalEdits = false } = {}) {
   if (!supabaseClient || !currentSession) return;
 
   setSaveStatus("Loading");
@@ -277,16 +349,27 @@ async function loadOnlineState() {
   }
 
   if (remote) {
-    // Merge remote into whatever we have locally (covers offline edits made
-    // before sign-in or before a previous save flushed).
-    state = mergeStates(state, remote);
+    if (hasLocalEdits) {
+      // We have cached local edits — merge them with remote so offline work
+      // isn't lost. mergeStates' final dedupe pass also heals legacy
+      // two-of-each-name data.
+      state = mergeStates(state, remote);
+    } else {
+      // Fresh device or no local cache — remote is the source of truth.
+      // Pass through dedupePlayersByName by re-normalizing.
+      state = remote;
+    }
     saveLocalState();
     hasLoadedRemoteState = true;
     setSaveStatus("Online");
-    // Push merged state back so remote reflects local-only edits we just merged in.
+    // Push back: covers (a) offline-edits-merged scenarios and (b) cleaning
+    // up duplicates remote may still have from before the dedup fix.
     await saveOnlineState();
   } else {
-    // Table reachable but empty → seed it with our state.
+    // Table reachable but empty → seed it with starters (or local cache).
+    if (!state.players || state.players.length === 0) {
+      state = createStarterState();
+    }
     hasLoadedRemoteState = true;
     await saveOnlineState();
   }
@@ -918,9 +1001,10 @@ async function handleSession(session) {
     userEmail.textContent = session.user?.email || "";
     showApp();
     hasLoadedRemoteState = false;
-    state = loadLocalState();
+    const cached = loadLocalState();
+    state = cached || emptyState();
     render({ save: false });
-    await loadOnlineState();
+    await loadOnlineState({ hasLocalEdits: Boolean(cached) });
     render({ save: false });
     subscribeToRealtime();
   } else {

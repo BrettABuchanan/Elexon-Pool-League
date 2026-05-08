@@ -556,6 +556,121 @@ input {
   gap: 8px;
 }
 
+.auth-overlay {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: clamp(16px, 4vw, 40px);
+  background:
+    linear-gradient(135deg, rgba(9, 51, 43, 0.92), rgba(35, 24, 21, 0.86)),
+    var(--felt-dark);
+  z-index: 100;
+}
+
+.auth-overlay[hidden] {
+  display: none;
+}
+
+.auth-card {
+  width: min(420px, 100%);
+  padding: clamp(24px, 5vw, 36px);
+  background: var(--cream);
+  border: 8px solid var(--rail);
+  border-radius: 8px;
+  box-shadow: 0 26px 80px rgba(0, 0, 0, 0.45), inset 0 0 0 3px rgba(255, 255, 255, 0.3);
+  color: var(--ink);
+}
+
+.auth-card .eyebrow {
+  color: var(--felt);
+}
+
+.auth-card h2 {
+  margin: 4px 0 10px;
+  font-size: 1.45rem;
+}
+
+.auth-blurb {
+  margin-bottom: 18px;
+  color: var(--muted);
+  font-size: 0.92rem;
+  line-height: 1.45;
+}
+
+#authForm {
+  display: grid;
+  gap: 10px;
+}
+
+#authForm label {
+  color: var(--muted);
+  font-size: 0.84rem;
+  font-weight: 800;
+}
+
+.auth-message {
+  margin-top: 14px;
+  min-height: 1em;
+  color: var(--felt);
+  font-size: 0.88rem;
+  font-weight: 800;
+}
+
+.auth-message.is-error {
+  color: var(--red);
+}
+
+.auth-warning {
+  margin-top: 16px;
+  padding: 12px 14px;
+  background: #fbe5e2;
+  border-radius: 8px;
+  color: var(--red);
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.auth-warning code {
+  background: rgba(255, 255, 255, 0.6);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 0.84rem;
+}
+
+.user-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  margin-top: 14px;
+  color: rgba(255, 255, 255, 0.86);
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
+.user-email {
+  display: inline-block;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.link-button {
+  border: 0;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.94);
+  padding: 0;
+  font-weight: 800;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.link-button:hover {
+  color: var(--gold);
+}
+
 @media (max-width: 780px) {
   .scoreboard {
     border-width: 8px;

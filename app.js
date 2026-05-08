@@ -5,6 +5,13 @@ const starterPlayers = ["Brett", "Las", "Alec", "Ethan", "Roger", "John", "Darre
 let state = createStarterState();
 let supabaseClient = null;
 let saveTimer = null;
+let currentSession = null;
+let hasLoadedRemoteState = false;
+let realtimeChannel = null;
+let saveInFlight = false;
+let saveQueued = false;
+// Used by the Realtime handler to ignore the echo of our own writes.
+let lastSentSnapshot = "";
 
 const monthSelect = document.querySelector("#monthSelect");
 const addMonthButton = document.querySelector("#addMonthButton");
@@ -29,6 +36,15 @@ const leaderName = document.querySelector("#leaderName");
 const overallLeaderName = document.querySelector("#overallLeaderName");
 const overallPodium = document.querySelector("#overallPodium");
 const saveStatus = document.querySelector("#saveStatus");
+const authOverlay = document.querySelector("#authOverlay");
+const appShell = document.querySelector("#appShell");
+const authForm = document.querySelector("#authForm");
+const authEmail = document.querySelector("#authEmail");
+const authSubmit = document.querySelector("#authSubmit");
+const authMessage = document.querySelector("#authMessage");
+const authConfigWarning = document.querySelector("#authConfigWarning");
+const signOutButton = document.querySelector("#signOutButton");
+const userEmail = document.querySelector("#userEmail");
 const chartColors = ["#0f6d54", "#d4a944", "#b9413a", "#000078", "#5b6f95", "#8b5a2b", "#6d4f90", "#2f8f9d"];
 
 function createId() {
@@ -52,25 +68,136 @@ function createStarterPlayers() {
   return starterPlayers.map((name) => ({
     id: createId(),
     name,
-    wins: { 1: 0 }
+    createdAt: 0,
+    wins: { 1: 0 },
+    winTs: { 1: 0 }
   }));
+}
+
+function normalizePlayer(player) {
+  const wins = {};
+  const winTs = {};
+  const sourceWins = player && typeof player.wins === "object" && player.wins ? player.wins : {};
+  const sourceTs = player && typeof player.winTs === "object" && player.winTs ? player.winTs : {};
+
+  for (const [month, value] of Object.entries(sourceWins)) {
+    wins[month] = Number(value) || 0;
+    winTs[month] = Number(sourceTs[month]) || 0;
+  }
+
+  return {
+    id: player?.id || createId(),
+    name: typeof player?.name === "string" ? player.name : "Player",
+    createdAt: Number(player?.createdAt) || 0,
+    wins,
+    winTs
+  };
 }
 
 function normalizeState(savedState) {
   if (!savedState || typeof savedState !== "object") return createStarterState();
 
-  const months = savedState.months || savedState.weeks || [1];
-  const selectedMonth = savedState.selectedMonth || savedState.selectedWeek || months[0] || 1;
+  const months = Array.isArray(savedState.months) && savedState.months.length
+    ? savedState.months.map(Number)
+    : Array.isArray(savedState.weeks) && savedState.weeks.length
+      ? savedState.weeks.map(Number)
+      : [1];
+  const selectedMonth = Number(savedState.selectedMonth || savedState.selectedWeek || months[0] || 1);
   const viewMode = savedState.viewMode === "season" ? "season" : "month";
-  const players = Array.isArray(savedState.players) && savedState.players.length
+  const rawPlayers = Array.isArray(savedState.players) && savedState.players.length
     ? savedState.players
     : createStarterPlayers();
+  const players = rawPlayers.map(normalizePlayer);
 
   return {
     selectedMonth,
     viewMode,
     months,
     players
+  };
+}
+
+function now() {
+  return Date.now();
+}
+
+// Stamp the timestamp on a single (player, month) cell so merges know whose
+// edit is fresher.
+function stampWin(player, month) {
+  if (!player.winTs) player.winTs = {};
+  player.winTs[month] = now();
+}
+
+// Merge two normalized states, preferring local for UI fields and merging
+// data fields per-cell using winTs timestamps. Used both before saving (to
+// avoid clobbering remote changes) and when receiving Realtime updates.
+function mergeStates(local, remote) {
+  if (!remote) return local;
+  if (!local) return remote;
+
+  const monthSet = new Set([
+    ...(local.months || []).map(Number),
+    ...(remote.months || []).map(Number)
+  ]);
+  const months = [...monthSet].sort((a, b) => a - b);
+
+  const playerById = new Map();
+  for (const lp of local.players || []) {
+    playerById.set(lp.id, normalizePlayer(lp));
+  }
+
+  for (const rp of remote.players || []) {
+    const remotePlayer = normalizePlayer(rp);
+    const existing = playerById.get(remotePlayer.id);
+
+    if (!existing) {
+      playerById.set(remotePlayer.id, remotePlayer);
+      continue;
+    }
+
+    const mergedWins = { ...existing.wins };
+    const mergedTs = { ...existing.winTs };
+
+    const cells = new Set([
+      ...Object.keys(existing.wins || {}),
+      ...Object.keys(remotePlayer.wins || {})
+    ]);
+
+    for (const month of cells) {
+      const localTs = Number(existing.winTs?.[month]) || 0;
+      const remoteTs = Number(remotePlayer.winTs?.[month]) || 0;
+      // Tie → keep local (we're the active editor right now).
+      if (remoteTs > localTs) {
+        mergedWins[month] = Number(remotePlayer.wins[month]) || 0;
+        mergedTs[month] = remoteTs;
+      } else {
+        mergedWins[month] = Number(existing.wins[month]) || 0;
+        mergedTs[month] = localTs;
+      }
+    }
+
+    playerById.set(remotePlayer.id, {
+      ...existing,
+      // Player metadata: keep the side with the older createdAt (it was named
+      // first); name follows local if both sides have the player.
+      createdAt: Math.min(
+        existing.createdAt || Infinity,
+        remotePlayer.createdAt || Infinity
+      ) === Infinity ? 0 : Math.min(
+        existing.createdAt || Number.MAX_SAFE_INTEGER,
+        remotePlayer.createdAt || Number.MAX_SAFE_INTEGER
+      ),
+      wins: mergedWins,
+      winTs: mergedTs
+    });
+  }
+
+  return {
+    // UI state: local wins.
+    selectedMonth: local.selectedMonth,
+    viewMode: local.viewMode,
+    months,
+    players: [...playerById.values()]
   };
 }
 
@@ -91,24 +218,34 @@ function saveLocalState() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 }
 
-function configureOnlineSave() {
+function configureSupabase() {
   const config = globalThis.POOL_LEAGUE_CONFIG;
-  const hasSupabase = globalThis.supabase && config?.supabaseUrl && config?.supabaseAnonKey;
-  const hasPlaceholders = config?.supabaseUrl?.includes("YOUR_") || config?.supabaseAnonKey?.includes("YOUR_");
+  const hasSdk = Boolean(globalThis.supabase);
+  const hasUrl = Boolean(config?.supabaseUrl) && !config.supabaseUrl.includes("YOUR_");
+  const hasKey = Boolean(config?.supabaseAnonKey) && !config.supabaseAnonKey.includes("YOUR_");
 
-  if (!hasSupabase || hasPlaceholders) {
-    setSaveStatus("Local");
-    return;
+  if (!hasSdk || !hasUrl || !hasKey) {
+    return false;
   }
 
-  supabaseClient = globalThis.supabase.createClient(config.supabaseUrl, config.supabaseAnonKey);
-  setSaveStatus("Online");
+  supabaseClient = globalThis.supabase.createClient(config.supabaseUrl, config.supabaseAnonKey, {
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true,
+      detectSessionInUrl: true
+    }
+  });
+  return true;
 }
 
-async function loadOnlineState() {
-  if (!supabaseClient) return;
-
-  setSaveStatus("Loading");
+// Returns { state, error }:
+//   state === null + error === null  → table reachable, no row yet
+//   state === <obj>                  → row found
+//   error !== null                   → real error (offline, RLS, etc.)
+async function fetchRemoteState() {
+  if (!supabaseClient || !currentSession) {
+    return { state: null, error: new Error("not signed in") };
+  }
 
   const { data, error } = await supabaseClient
     .from("league_state")
@@ -117,48 +254,154 @@ async function loadOnlineState() {
     .maybeSingle();
 
   if (error) {
-    console.error(error);
-    setSaveStatus("Local");
-    return;
+    console.error("fetchRemoteState error", error);
+    return { state: null, error };
   }
 
-  if (data?.data) {
-    state = normalizeState(data.data);
-    saveLocalState();
-  } else {
-    await saveOnlineState();
-  }
-
-  setSaveStatus("Online");
+  return {
+    state: data?.data ? normalizeState(data.data) : null,
+    error: null
+  };
 }
 
-async function saveOnlineState() {
-  if (!supabaseClient) return;
+async function loadOnlineState() {
+  if (!supabaseClient || !currentSession) return;
 
-  setSaveStatus("Saving");
+  setSaveStatus("Loading");
 
-  const { error } = await supabaseClient
-    .from("league_state")
-    .upsert({
-      id: LEAGUE_ID,
-      data: state,
-      updated_at: new Date().toISOString()
-    });
+  const { state: remote, error } = await fetchRemoteState();
 
   if (error) {
-    console.error(error);
-    setSaveStatus("Local");
+    setSaveStatus("Offline");
     return;
   }
 
-  setSaveStatus("Saved");
+  if (remote) {
+    // Merge remote into whatever we have locally (covers offline edits made
+    // before sign-in or before a previous save flushed).
+    state = mergeStates(state, remote);
+    saveLocalState();
+    hasLoadedRemoteState = true;
+    setSaveStatus("Online");
+    // Push merged state back so remote reflects local-only edits we just merged in.
+    await saveOnlineState();
+  } else {
+    // Table reachable but empty → seed it with our state.
+    hasLoadedRemoteState = true;
+    await saveOnlineState();
+  }
+}
+
+// Serialized save: fetch remote → merge with local → write back. If another
+// save is requested while one is in flight, queue exactly one follow-up so we
+// always end up with the latest state pushed.
+async function saveOnlineState() {
+  if (!supabaseClient || !currentSession) return;
+
+  if (saveInFlight) {
+    saveQueued = true;
+    return;
+  }
+
+  saveInFlight = true;
+  try {
+    setSaveStatus("Saving");
+
+    const { state: remote, error: fetchError } = await fetchRemoteState();
+    if (fetchError) {
+      setSaveStatus("Offline");
+      return;
+    }
+    const merged = remote ? mergeStates(state, remote) : state;
+    state = merged;
+
+    const payload = {
+      months: state.months,
+      players: state.players
+    };
+    lastSentSnapshot = JSON.stringify(payload);
+
+    const { error } = await supabaseClient
+      .from("league_state")
+      .upsert({
+        id: LEAGUE_ID,
+        data: payload,
+        updated_at: new Date().toISOString()
+      });
+
+    if (error) {
+      console.error(error);
+      setSaveStatus("Offline");
+      return;
+    }
+
+    saveLocalState();
+    render({ save: false });
+    setSaveStatus("Saved");
+  } finally {
+    saveInFlight = false;
+    if (saveQueued) {
+      saveQueued = false;
+      // Coalesce: schedule the follow-up so rapid edits during a save still flush.
+      window.setTimeout(saveOnlineState, 0);
+    }
+  }
 }
 
 function scheduleOnlineSave() {
-  if (!supabaseClient) return;
+  // Don't write back to Supabase until we've successfully pulled the remote state
+  // at least once — otherwise an empty local state could overwrite real data.
+  if (!supabaseClient || !currentSession || !hasLoadedRemoteState) return;
 
   window.clearTimeout(saveTimer);
   saveTimer = window.setTimeout(saveOnlineState, 350);
+}
+
+function applyRemoteUpdate(remoteData) {
+  if (!remoteData) return;
+
+  // Skip the echo of our own write — Supabase Realtime delivers a row event
+  // for every UPDATE, including ones we just made.
+  const incomingSnapshot = JSON.stringify({
+    months: Array.isArray(remoteData.months) ? remoteData.months : [],
+    players: Array.isArray(remoteData.players) ? remoteData.players : []
+  });
+  if (incomingSnapshot === lastSentSnapshot) return;
+
+  const remote = normalizeState(remoteData);
+  state = mergeStates(state, remote);
+  saveLocalState();
+  render({ save: false });
+}
+
+function subscribeToRealtime() {
+  if (!supabaseClient || realtimeChannel) return;
+
+  realtimeChannel = supabaseClient
+    .channel(`league-state-${LEAGUE_ID}`)
+    .on(
+      "postgres_changes",
+      {
+        event: "*",
+        schema: "public",
+        table: "league_state",
+        filter: `id=eq.${LEAGUE_ID}`
+      },
+      (payload) => {
+        applyRemoteUpdate(payload.new?.data);
+      }
+    )
+    .subscribe();
+}
+
+async function unsubscribeFromRealtime() {
+  if (!realtimeChannel) return;
+  try {
+    await supabaseClient.removeChannel(realtimeChannel);
+  } catch (e) {
+    console.warn("Could not unsubscribe from realtime channel", e);
+  }
+  realtimeChannel = null;
 }
 
 function setSaveStatus(label) {
@@ -166,9 +409,14 @@ function setSaveStatus(label) {
 }
 
 function ensureMonthWins(player) {
+  if (!player.wins) player.wins = {};
+  if (!player.winTs) player.winTs = {};
   state.months.forEach((month) => {
     if (typeof player.wins[month] !== "number") {
       player.wins[month] = 0;
+    }
+    if (typeof player.winTs[month] !== "number") {
+      player.winTs[month] = 0;
     }
   });
 }
@@ -533,6 +781,7 @@ addMonthButton.addEventListener("click", () => {
 clearMonthButton.addEventListener("click", () => {
   state.players.forEach((player) => {
     player.wins[state.selectedMonth] = 0;
+    stampWin(player, state.selectedMonth);
   });
   render();
 });
@@ -546,6 +795,7 @@ winsForm.addEventListener("submit", (event) => {
   if (!player) return;
 
   player.wins[state.selectedMonth] = (player.wins[state.selectedMonth] || 0) + winsToAdd;
+  stampWin(player, state.selectedMonth);
   winsInput.value = "1";
   render();
 });
@@ -559,6 +809,7 @@ correctionForm.addEventListener("submit", (event) => {
   if (!player) return;
 
   player.wins[state.selectedMonth] = correctedWins;
+  stampWin(player, state.selectedMonth);
   render();
 });
 
@@ -573,10 +824,15 @@ playerForm.addEventListener("submit", (event) => {
     return;
   }
 
+  const ts = now();
   state.players.push({
     id: createId(),
     name,
-    wins: Object.fromEntries(state.months.map((month) => [month, 0]))
+    createdAt: ts,
+    wins: Object.fromEntries(state.months.map((month) => [month, 0])),
+    // Stamp every cell of the new player so the addition itself wins over an
+    // older blank cell on another device.
+    winTs: Object.fromEntries(state.months.map((month) => [month, ts]))
   });
 
   newPlayerInput.value = "";
@@ -588,11 +844,122 @@ resetButton.addEventListener("click", () => {
   render();
 });
 
+function showAuthOverlay() {
+  authOverlay.hidden = false;
+  appShell.hidden = true;
+}
+
+function showApp() {
+  authOverlay.hidden = true;
+  appShell.hidden = false;
+}
+
+function setAuthMessage(text, { error = false } = {}) {
+  authMessage.textContent = text || "";
+  authMessage.classList.toggle("is-error", Boolean(error));
+}
+
+function setAuthBusy(busy) {
+  authSubmit.disabled = busy;
+  authSubmit.textContent = busy ? "Sending…" : "Send sign-in link";
+}
+
+async function handleAuthSubmit(event) {
+  event.preventDefault();
+
+  if (!supabaseClient) {
+    setAuthMessage("Supabase isn't configured yet — see config.js.", { error: true });
+    return;
+  }
+
+  const email = authEmail.value.trim();
+  if (!email) return;
+
+  setAuthBusy(true);
+  setAuthMessage("");
+
+  const { error } = await supabaseClient.auth.signInWithOtp({
+    email,
+    options: {
+      emailRedirectTo: window.location.href.split("#")[0]
+    }
+  });
+
+  setAuthBusy(false);
+
+  if (error) {
+    console.error(error);
+    setAuthMessage(error.message || "Could not send sign-in link.", { error: true });
+    return;
+  }
+
+  setAuthMessage(`Check ${email} for a sign-in link.`);
+}
+
+async function handleSignOut() {
+  if (!supabaseClient) return;
+  await supabaseClient.auth.signOut();
+  // onAuthStateChange will handle the UI reset.
+}
+
+function clearLocalState() {
+  try {
+    localStorage.removeItem(STORAGE_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+async function handleSession(session) {
+  const wasSignedIn = Boolean(currentSession);
+  currentSession = session;
+
+  if (session) {
+    userEmail.textContent = session.user?.email || "";
+    showApp();
+    hasLoadedRemoteState = false;
+    state = loadLocalState();
+    render({ save: false });
+    await loadOnlineState();
+    render({ save: false });
+    subscribeToRealtime();
+  } else {
+    await unsubscribeFromRealtime();
+    hasLoadedRemoteState = false;
+    saveQueued = false;
+    lastSentSnapshot = "";
+    state = createStarterState();
+    if (wasSignedIn) clearLocalState();
+    setSaveStatus("Local");
+    showAuthOverlay();
+  }
+}
+
+authForm.addEventListener("submit", handleAuthSubmit);
+signOutButton.addEventListener("click", handleSignOut);
+
 async function start() {
-  state = loadLocalState();
-  configureOnlineSave();
-  await loadOnlineState();
+  // Render once with default state so the layout exists if we end up showing the app.
   render({ save: false });
+
+  const ready = configureSupabase();
+
+  if (!ready) {
+    authConfigWarning.hidden = false;
+    authSubmit.disabled = true;
+    setSaveStatus("Local");
+    showAuthOverlay();
+    return;
+  }
+
+  authConfigWarning.hidden = true;
+
+  supabaseClient.auth.onAuthStateChange((_event, session) => {
+    handleSession(session);
+  });
+
+  const { data } = await supabaseClient.auth.getSession();
+  await handleSession(data.session);
 }
 
 start();

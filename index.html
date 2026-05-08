@@ -7,13 +7,34 @@
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
-    <main class="app-shell">
+    <div id="authOverlay" class="auth-overlay" hidden>
+      <div class="auth-card" role="dialog" aria-labelledby="authTitle">
+        <p class="eyebrow">ELEXON Pool League</p>
+        <h2 id="authTitle">Sign in to continue</h2>
+        <p class="auth-blurb">Enter your email and we'll send you a one-tap sign-in link. Your standings will sync across every device you sign in on.</p>
+        <form id="authForm">
+          <label for="authEmail">Email address</label>
+          <input id="authEmail" type="email" autocomplete="email" required placeholder="you@example.com">
+          <button class="primary-button" type="submit" id="authSubmit">Send sign-in link</button>
+        </form>
+        <p id="authMessage" class="auth-message" role="status" aria-live="polite"></p>
+        <p id="authConfigWarning" class="auth-warning" hidden>
+          Supabase is not configured yet. Open <code>config.js</code> and paste your project URL and anon key.
+        </p>
+      </div>
+    </div>
+
+    <main class="app-shell" id="appShell" hidden>
       <section class="scoreboard" aria-label="Pool league dashboard">
         <header class="topbar">
           <div>
             <p class="eyebrow">Monthly standings</p>
             <h1><span class="brand-logo" aria-label="Elexon">ELEXON</span> Pool League</h1>
             <p class="season-note">Season: 1 Jan to 31 Dec</p>
+            <div class="user-bar">
+              <span id="userEmail" class="user-email"></span>
+              <button id="signOutButton" class="link-button" type="button">Sign out</button>
+            </div>
           </div>
           <div class="month-picker">
             <label for="monthSelect">Month</label>

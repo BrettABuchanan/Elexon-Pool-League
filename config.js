@@ -1,4 +1,4 @@
 window.POOL_LEAGUE_CONFIG = {
-  supabaseUrl: "YOUR_SUPABASE_PROJECT_URL",
-  supabaseAnonKey: "YOUR_SUPABASE_ANON_KEY"
+  supabaseUrl: "https://vqtybdlqqtrripsipwkv.supabase.co",
+  supabaseAnonKey: "sb_publishable_-Z_dt_vX5_0M3MjdSInNDw_wZZWaZ5P"
 };

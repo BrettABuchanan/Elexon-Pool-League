@@ -635,7 +635,7 @@ function renderMonthStandings(overallLeader, hasOverallLeader) {
     row.setAttribute("role", "row");
 
     const rank = document.createElement("span");
-    rank.innerHTML = `<span class="rank-pill">${index + 1}</span>`;
+    rank.innerHTML = `<span class="rank-pill" data-rank="${index + 1}"><span class="ball-number">${index + 1}</span></span>`;
 
     const name = createPlayerNameCell(player, overallLeader, hasOverallLeader);
 
@@ -663,7 +663,7 @@ function renderSeasonStandings(overallLeader, hasOverallLeader, recentMonths) {
     row.setAttribute("role", "row");
 
     const rank = document.createElement("span");
-    rank.innerHTML = `<span class="rank-pill">${index + 1}</span>`;
+    rank.innerHTML = `<span class="rank-pill" data-rank="${index + 1}"><span class="ball-number">${index + 1}</span></span>`;
 
     const name = createPlayerNameCell(player, overallLeader, hasOverallLeader);
 
@@ -717,7 +717,8 @@ function renderOverallPodium() {
 
     const rank = document.createElement("span");
     rank.className = "podium-rank";
-    rank.textContent = index + 1;
+    rank.setAttribute("data-rank", index + 1);
+    rank.innerHTML = `<span class="ball-number">${index + 1}</span>`;
 
     const name = document.createElement("span");
     name.className = "podium-name";

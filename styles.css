@@ -309,14 +309,7 @@ input {
   box-shadow: inset 4px 0 0 var(--red);
 }
 
-.table-row.is-leader .rank-pill {
-  background: var(--gold);
-  color: #21180a;
-}
-
-.table-row.is-last .rank-pill {
-  background: var(--red);
-}
+/* Billiard-ball coloring overrides removed — the ball itself signals rank. */
 
 .table-row span {
   padding: 0 14px;
@@ -331,16 +324,97 @@ input {
   text-transform: uppercase;
 }
 
-.rank-pill {
+/* Billiard ball — sphere with white inner cue circle and a serif number.
+   Color comes from data-rank (standard pool ball colors, 1-8 solid, 9-15 striped). */
+.rank-pill,
+.podium-rank {
+  --ball-color: #0f6d54; /* fallback */
+  --ball-text: #1a1a1a;
+  position: relative;
   display: inline-grid;
   place-items: center;
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
-  background: var(--felt);
-  color: white;
+  background:
+    radial-gradient(circle at 30% 26%, rgba(255, 255, 255, 0.6), rgba(255, 255, 255, 0) 42%),
+    var(--ball-color);
+  box-shadow:
+    inset -3px -4px 6px rgba(0, 0, 0, 0.32),
+    inset 2px 2px 3px rgba(255, 255, 255, 0.18),
+    0 2px 4px rgba(0, 0, 0, 0.25);
   font-weight: 900;
+  /* Hide the original text; the inner .ball-number span carries the visible number. */
+  color: transparent;
 }
+
+/* Striped balls: white above and below a colored band. The radial highlight
+   sits on top so the sphere effect still works. */
+.rank-pill[data-rank="9"],
+.rank-pill[data-rank="10"],
+.rank-pill[data-rank="11"],
+.rank-pill[data-rank="12"],
+.rank-pill[data-rank="13"],
+.rank-pill[data-rank="14"],
+.rank-pill[data-rank="15"],
+.podium-rank[data-rank="9"],
+.podium-rank[data-rank="10"],
+.podium-rank[data-rank="11"],
+.podium-rank[data-rank="12"],
+.podium-rank[data-rank="13"],
+.podium-rank[data-rank="14"],
+.podium-rank[data-rank="15"] {
+  background:
+    radial-gradient(circle at 30% 26%, rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0) 45%),
+    linear-gradient(
+      to bottom,
+      #f4f1e6 0%,
+      #f4f1e6 26%,
+      var(--ball-color) 26%,
+      var(--ball-color) 74%,
+      #f4f1e6 74%,
+      #f4f1e6 100%
+    );
+}
+
+/* White cue-spot sitting behind the number. */
+.rank-pill::before,
+.podium-rank::before {
+  content: "";
+  position: absolute;
+  width: 58%;
+  height: 58%;
+  border-radius: 50%;
+  background: #f5f1e6;
+  box-shadow: inset 1px 1px 2px rgba(0, 0, 0, 0.12);
+}
+
+.ball-number {
+  position: relative;
+  z-index: 1;
+  color: var(--ball-text);
+  font-family: Georgia, "Times New Roman", "Liberation Serif", serif;
+  font-size: 0.78rem;
+  font-weight: 900;
+  line-height: 1;
+}
+
+/* Standard pool ball colors. */
+.rank-pill[data-rank="1"],  .podium-rank[data-rank="1"]  { --ball-color: #f1c50e; }  /* yellow */
+.rank-pill[data-rank="2"],  .podium-rank[data-rank="2"]  { --ball-color: #1f3a8a; }  /* blue */
+.rank-pill[data-rank="3"],  .podium-rank[data-rank="3"]  { --ball-color: #b9413a; }  /* red */
+.rank-pill[data-rank="4"],  .podium-rank[data-rank="4"]  { --ball-color: #4b2a78; }  /* purple */
+.rank-pill[data-rank="5"],  .podium-rank[data-rank="5"]  { --ball-color: #d97a1f; }  /* orange */
+.rank-pill[data-rank="6"],  .podium-rank[data-rank="6"]  { --ball-color: #166b3d; }  /* green */
+.rank-pill[data-rank="7"],  .podium-rank[data-rank="7"]  { --ball-color: #6a221c; }  /* maroon */
+.rank-pill[data-rank="8"],  .podium-rank[data-rank="8"]  { --ball-color: #1a1a1a; }  /* black */
+.rank-pill[data-rank="9"],  .podium-rank[data-rank="9"]  { --ball-color: #f1c50e; }
+.rank-pill[data-rank="10"], .podium-rank[data-rank="10"] { --ball-color: #1f3a8a; }
+.rank-pill[data-rank="11"], .podium-rank[data-rank="11"] { --ball-color: #b9413a; }
+.rank-pill[data-rank="12"], .podium-rank[data-rank="12"] { --ball-color: #4b2a78; }
+.rank-pill[data-rank="13"], .podium-rank[data-rank="13"] { --ball-color: #d97a1f; }
+.rank-pill[data-rank="14"], .podium-rank[data-rank="14"] { --ball-color: #166b3d; }
+.rank-pill[data-rank="15"], .podium-rank[data-rank="15"] { --ball-color: #6a221c; }
 
 .player-cell {
   display: flex;
@@ -407,16 +481,17 @@ input {
   background: #fff4cc;
 }
 
+/* Smaller billiard balls in the podium. */
 .podium-rank {
-  width: 28px;
-  height: 28px;
-  background: var(--felt);
-  color: white;
+  width: 30px;
+  height: 30px;
 }
-
-.podium-row.is-first .podium-rank {
-  background: var(--gold);
-  color: #21180a;
+.podium-rank::before {
+  width: 60%;
+  height: 60%;
+}
+.podium-rank .ball-number {
+  font-size: 0.72rem;
 }
 
 .podium-name {

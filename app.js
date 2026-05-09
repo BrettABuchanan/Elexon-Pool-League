@@ -1,6 +1,11 @@
 const STORAGE_KEY = "pool-league-dashboard-v1";
 const LEAGUE_ID = "elexon-pool-league";
 const starterPlayers = ["Brett", "Las", "Alec", "Ethan", "Roger", "John", "Darren", "Han"];
+// Soft confirmation gate so a stray click on "Reset league" can't wipe the
+// season. Anyone with read access to this file can see it — that's fine, it's
+// a guardrail against accidents (kids tapping buttons, fat-fingers), not a
+// security control.
+const RESET_PASSWORD = "Elexon123";
 
 let state = createStarterState();
 let supabaseClient = null;
@@ -924,6 +929,12 @@ playerForm.addEventListener("submit", (event) => {
 });
 
 resetButton.addEventListener("click", () => {
+  const entered = window.prompt("Enter password to reset the league:");
+  if (entered === null) return; // user cancelled — silent no-op
+  if (entered !== RESET_PASSWORD) {
+    window.alert("Wrong password — league not reset.");
+    return;
+  }
   state = createStarterState();
   render();
 });
